@@ -623,6 +623,10 @@ namespace UnofficialPatch
         private const float LinearPointY0 = 0.5f;
         private const float LinearPointX1 = 1f;
         private const float LinearPointY1 = 0.25f;
+        // Variable flag and multiplier for FUJI ticket bonus.
+        private const string FujiTicketsVariable = "FUJI_3_TICKETS";
+        private const string TrueValue = "true";
+        private const float FujiTicketsMultiplier = 1.05f;
 
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
@@ -656,9 +660,11 @@ namespace UnofficialPatch
             // Start with the game's base hype calculation.
             float hype = __this.GetHype();
 
-            // Only reshape hype above the baseline (1.0).
-            // NOTE: This patch does not yet apply the club-venue exemption or FUJI_3_TICKETS multiplier.
-            if (hype > HypeBaseline)
+            // Club venues never use the post-100% hype curve in the base game.
+            bool isClubVenue = __this.Parent != null && __this.Parent.Venue == SEvent_Concerts._venue.club;
+
+            // Only reshape hype above the baseline (1.0) for non-club venues.
+            if (!isClubVenue && hype > HypeBaseline)
             {
                 // Avoid target-typed new() for max compatibility
                 LinearFunction._function function = new LinearFunction._function();
@@ -668,6 +674,12 @@ namespace UnofficialPatch
                 // Convert "hype above 1" into a scaled bonus, then re-add the baseline.
                 float excessHype = hype - HypeBaseline;
                 hype = excessHype * function.GetY(excessHype) + HypeBaseline;
+            }
+
+            // Apply the FUJI ticket bonus if enabled.
+            if (variables.Get(FujiTicketsVariable) == TrueValue)
+            {
+                hype *= FujiTicketsMultiplier;
             }
 
             // Return the adjusted hype value.
