@@ -285,10 +285,18 @@ namespace UnofficialPatch
             if (___Girl.GetFans_Total() == NoFans)
                 return;
 
-            // Adjust the adult slice to correct the stacked slice math.
-            __instance.Fans_Pie_Adult.GetComponent<Image>().fillAmount +=
-                __instance.Fans_Pie_YA.GetComponent<Image>().fillAmount -
-                __instance.Fans_Pie_Teen.GetComponent<Image>().fillAmount;
+            Image teenImage = __instance.Fans_Pie_Teen.GetComponent<Image>();
+            Image yaImage = __instance.Fans_Pie_YA.GetComponent<Image>();
+            Image adultImage = __instance.Fans_Pie_Adult.GetComponent<Image>();
+
+            float teenFill = teenImage.fillAmount;
+            float yaFill = yaImage.fillAmount;
+            float adultFill = adultImage.fillAmount;
+
+            // The prefab renders Teen as the base image with Adult and YA as child images on top.
+            // Use cumulative fills so the visible slices match the ratios (YA, then Adult, then Teen).
+            adultImage.fillAmount = adultFill + yaFill - teenFill;
+            teenImage.fillAmount = adultFill + yaFill;
         }
     }
 
@@ -570,10 +578,16 @@ namespace UnofficialPatch
         private const int FirstPartnerIndex = 0;
         private const int SecondPartnerIndex = 1;
 
-        public static void Postfix(ref Relationships._relationship __instance)
+        public static void Prefix(Relationships._relationship __instance, ref bool __state)
+        {
+            // Capture whether the pair was dating before BreakUp clears the flag.
+            __state = __instance.Dating;
+        }
+
+        public static void Postfix(Relationships._relationship __instance, bool __state)
         {
             // Only clear known status when the pair was actually dating.
-            if (!__instance.Dating)
+            if (!__state)
                 return;
 
             // Hide partner status for both sides after breakup.
@@ -626,6 +640,7 @@ namespace UnofficialPatch
             float hype = __this.GetHype();
 
             // Only reshape hype above the baseline (1.0).
+            // NOTE: This patch does not yet apply the club-venue exemption or FUJI_3_TICKETS multiplier.
             if (hype > HypeBaseline)
             {
                 // Avoid target-typed new() for max compatibility
@@ -649,12 +664,12 @@ namespace UnofficialPatch
     [HarmonyPatch(typeof(SEvent_Concerts._concert._projectedValues), "GetString")]
     public class SEvent_Concerts__concert__projectedValues_GetString
     {
-        // Ratio cap corresponding to 100%.
-        private const float MaxRatio = 1f;
+        // Hype is capped at 200% (2.0) by the base game.
+        private const float MaxRatio = 2f;
 
         public static bool Prefix(ref float _val)
         {
-            // Clamp the ratio so the display never exceeds 100%.
+            // Clamp ratios so hype does not exceed its intended 200% cap.
             if (_val > MaxRatio)
             {
                 _val = MaxRatio;
