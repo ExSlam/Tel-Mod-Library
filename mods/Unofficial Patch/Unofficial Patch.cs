@@ -651,7 +651,7 @@ namespace UnofficialPatch
             }
 
             // Swap to our Infix method to apply the adjusted hype curve.
-            matcher.SetOpcodeAndOperand(OpCodes.Call, infix);
+            matcher.Set(OpCodes.Call, infix);
             return matcher.InstructionEnumeration();
         }
 
@@ -888,7 +888,7 @@ namespace UnofficialPatch
             // Always continue past the early return so status is shown for underage members.
             // Preserve short/long branch size to avoid IL size issues.
             OpCode newBranch = matcher.Opcode == OpCodes.Brtrue_S ? OpCodes.Br_S : OpCodes.Br;
-            matcher.SetOpcodeAndOperand(newBranch, matcher.Operand);
+            matcher.Set(newBranch, matcher.Operand);
             return matcher.InstructionEnumeration();
         }
     }
