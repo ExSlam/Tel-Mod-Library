@@ -371,6 +371,29 @@ namespace UnofficialPatch
 
     }
 
+    // Fix senbatsu parameter queries to use the requested param type.
+    [HarmonyPatch(typeof(singles._single), "GetSenbatsuParamValue")]
+    public class singles__single_GetSenbatsuParamValue
+    {
+        // Cache the private calculator so we can call it with the correct param type.
+        private static readonly MethodInfo SenbatsuCalcParam = AccessTools.Method(
+            typeof(singles._single),
+            "SenbatsuCalcParam",
+            new Type[] { typeof(List<data_girls.girls>), typeof(data_girls._paramType), typeof(Groups._group) });
+
+        public static bool Prefix(singles._single __instance, data_girls._paramType Type, ref float __result)
+        {
+            // Fall back to vanilla behavior if reflection fails.
+            if (SenbatsuCalcParam == null)
+                return true;
+
+            // Compute the value using the requested param type (instead of always "cute").
+            var param = (data_girls.girls.param)SenbatsuCalcParam.Invoke(__instance, new object[] { __instance.girls, Type, null });
+            __result = param.val;
+            return false;
+        }
+    }
+
 
     // Dating status is visible for underage members
     [HarmonyPatch(typeof(data_girls.girls), "GetPartnerString")]
@@ -461,6 +484,28 @@ namespace UnofficialPatch
             }
 
             return instructionList.AsEnumerable();
+        }
+    }
+
+    // Fix "variable" requirements to respect leading negation.
+    [HarmonyPatch(typeof(vn_requirements), "CheckGirl", new Type[] { typeof(data_girls.girls), typeof(string), typeof(string) })]
+    public class vn_requirements_CheckGirl_Variable
+    {
+        public static bool Prefix(data_girls.girls girl, string parameter, string formula, ref bool __result)
+        {
+            if (parameter != "variable")
+                return true;
+
+            bool negate = false;
+            if (!string.IsNullOrEmpty(formula) && formula[0] == '!')
+            {
+                negate = true;
+                formula = formula.Substring(1);
+            }
+
+            bool hasVariable = girl.IsVariable(formula);
+            __result = negate ? !hasVariable : hasVariable;
+            return false;
         }
     }
 
