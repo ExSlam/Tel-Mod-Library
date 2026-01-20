@@ -324,35 +324,35 @@ namespace UnofficialPatch
             return instructionList.AsEnumerable();
         }
 
-        public static float Infix(int num)
+        public static float Infix(int idolCount)
         {
-            float num2 = 5;
-            if (num == 0)
-            {
-                num2 = 0;
-            }
-            else if (num == 1)
-            {
-                num2 = 1;
-            }
-            else if (num <= 3)
-            {
-                num2 = 1 + (num - 1) / 2;
-            }
-            else if (num <= 6)
-            {
-                num2 = 2 + (num - 3) / 3;
-            }
-            else if (num <= 10)
-            {
-                num2 = 3 + (num - 6) / 4;
-            }
-            else if (num <= 15)
-            {
-                num2 = 3 + (num - 10) / 5;
-            }
-            return 100f / num2;
+            // Total rows in the senbatsu formation:
+            // 1, 2, 3, 4, 5  (total capacity = 15)
+            const int totalRows = 5;
+
+            // Safety: if no idols, don't divide by zero.
+            // (The game probably never passes 0, but this prevents Infinity/NaN.)
+            if (idolCount <= 0)
+                return 0f;
+
+            // Triangular number inversion:
+            // Assume that r represents the minimum required number of rows to fit all our idols represented by n
+            // Find the smallest r such that r(r+1)/2 >= idolCount
+            //
+            // r = ceil((sqrt(8N + 1) - 1) / 2)
+            float n = idolCount;
+            float r = (Mathf.Sqrt(8f * n + 1f) - 1f) / 2f;
+
+            int rowsUsed = Mathf.CeilToInt(r);
+
+            // Clamp to the real formation size:
+            // Anything above 15 idols still just uses all 5 rows.
+            rowsUsed = Mathf.Clamp(rowsUsed, 1, totalRows);
+
+            // The game wants a "percentage per used row" kind of factor.
+            return 100f / rowsUsed;
         }
+
     }
 
 
