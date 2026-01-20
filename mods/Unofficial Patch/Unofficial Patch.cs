@@ -244,42 +244,58 @@ namespace UnofficialPatch
         }
     }
 
-	// Fixed Concert revenue formula so that it shows accurate estimated values
+        // Fixed Concert revenue formula so that it shows accurate estimated values
     [HarmonyPatch(typeof(SEvent_Concerts._concert._projectedValues), "GetRevenue")]
     public class SEvent_Concerts__concert__projectedValues_GetRevenue
     {
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            List<CodeInstruction> instructionList = new List<CodeInstruction>(instructions);
+            // Copy the IL stream so we can edit it in-place.
+            var list = new List<CodeInstruction>(instructions);
 
-            for (int i = 0; i < instructionList.Count; i++)
+            // Locate the original GetHype call and our replacement method.
+            MethodInfo getHype = AccessTools.Method(typeof(SEvent_Concerts._concert._projectedValues), "GetHype");
+            MethodInfo infix   = AccessTools.Method(typeof(SEvent_Concerts__concert__projectedValues_GetRevenue), nameof(Infix));
+
+            for (int i = 0; i < list.Count; i++)
             {
-                if (instructionList[i].opcode == OpCodes.Call && (MethodInfo)instructionList[i].operand == AccessTools.Method(typeof(SEvent_Concerts._concert._projectedValues), "GetHype"))
+                // Find the first call to GetHype in the IL.
+                if ((list[i].opcode == OpCodes.Call || list[i].opcode == OpCodes.Callvirt) &&
+                    list[i].operand is MethodInfo mi && mi == getHype)
                 {
-                    instructionList[i].operand = AccessTools.Method(typeof(SEvent_Concerts__concert__projectedValues_GetRevenue), "Infix");
+                    // Swap to our Infix method to apply the adjusted hype curve.
+                    list[i].opcode = OpCodes.Call; // force static call
+                    list[i].operand = infix;
                     break;
                 }
             }
 
-            return instructionList.AsEnumerable();
+            // Return the modified IL stream.
+            return list;
         }
 
         public static float Infix(SEvent_Concerts._concert._projectedValues __this)
         {
-
+            // Start with the game's base hype calculation.
             float hype = __this.GetHype();
-            if (hype > 1)
+
+            if (hype > 1f)
             {
-                LinearFunction._function function = new();
+                // Avoid target-typed new() for max compatibility
+                LinearFunction._function function = new LinearFunction._function();
+                // Configure a linear mapping with points (0, 0.5) and (1, 0.25).
                 function.Init(0f, 0.5f, 1f, 0.25f);
 
+                // Convert "hype above 1" into a scaled bonus, then re-add the baseline.
                 float num2 = hype - 1f;
                 hype = num2 * function.GetY(num2) + 1f;
             }
 
+            // Return the adjusted hype value.
             return hype;
         }
     }
+
 
 
 	// Fixed Concert revenue formula so that it shows accurate estimated values
