@@ -277,8 +277,10 @@ namespace UnofficialPatch
     {
         // No-fan sentinel for early exit.
         private const long NoFans = 0L;
+        // Cap for cumulative pie fills.
+        private const float MaxPieFill = 1f;
 
-        // Fixes age-pie rendering so adult slice reflects the residual after YA/Teen allocation.
+        // Fixes age-pie rendering so the stacked slices match the teen/YA/adult ratios.
         public static void Postfix(Profile_Fans_Pies __instance, data_girls.girls ___Girl)
         {
             // Skip when there are no fans to render, avoiding divide-by-zero ratios in vanilla code.
@@ -289,14 +291,29 @@ namespace UnofficialPatch
             Image yaImage = __instance.Fans_Pie_YA.GetComponent<Image>();
             Image adultImage = __instance.Fans_Pie_Adult.GetComponent<Image>();
 
-            float teenFill = teenImage.fillAmount;
-            float yaFill = yaImage.fillAmount;
-            float adultFill = adultImage.fillAmount;
+            float teenRatio = teenImage.fillAmount;
+            float yaRatio = yaImage.fillAmount;
+            // Base game sets Adult fill to adult + teen, so subtract teen to recover the adult slice.
+            float adultRatio = adultImage.fillAmount - teenRatio;
+            if (adultRatio < 0f)
+            {
+                adultRatio = 0f;
+            }
+
+            float totalRatio = teenRatio + yaRatio + adultRatio;
+            // Guard against rounding overshoot by scaling to the expected 0..1 range.
+            if (totalRatio > MaxPieFill && totalRatio > 0f)
+            {
+                float scale = MaxPieFill / totalRatio;
+                teenRatio *= scale;
+                yaRatio *= scale;
+                adultRatio *= scale;
+            }
 
             // The prefab renders Teen as the base image with Adult and YA as child images on top.
             // Use cumulative fills so the visible slices match the ratios (YA, then Adult, then Teen).
-            adultImage.fillAmount = adultFill + yaFill - teenFill;
-            teenImage.fillAmount = adultFill + yaFill;
+            adultImage.fillAmount = adultRatio + yaRatio;
+            teenImage.fillAmount = adultRatio + yaRatio + teenRatio;
         }
     }
 
