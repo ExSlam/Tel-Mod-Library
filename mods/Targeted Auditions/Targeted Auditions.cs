@@ -40,7 +40,14 @@ namespace CustomAuditions
         /// <param name="__instance">The instance of Popup_Audition being patched.</param>
         public static void Postfix(Popup_Audition __instance)
         {
-            if (__instance.Cards_Container.transform.parent.GetComponent<ScrollRect>() != null)
+            if (__instance == null || __instance.Cards_Container == null)
+                return;
+
+            Transform currentParent = __instance.Cards_Container.transform.parent;
+            if (currentParent == null)
+                return;
+
+            if (currentParent.GetComponent<ScrollRect>() != null)
                 return;
 
             // Create ScrollRect container and attach to panel
@@ -51,6 +58,7 @@ namespace CustomAuditions
             // Configure the ScrollRect
             ScrollRect scrollRect = scrollContainer.GetComponent<ScrollRect>();
             scrollRect.content = __instance.Cards_Container.GetComponent<RectTransform>(); // attach content
+            scrollRect.viewport = scrollRectTransform;
             scrollRect.vertical = false;
             scrollRect.horizontal = true;
             scrollRect.movementType = ScrollRect.MovementType.Elastic;
@@ -59,10 +67,187 @@ namespace CustomAuditions
             scrollRect.scrollSensitivity = 20;
 
             // Configure hierarchy
-            scrollContainer.transform.SetParent(__instance.Cards_Container.transform.parent, false);
+            scrollContainer.transform.SetParent(currentParent, false);
             __instance.Cards_Container.transform.SetParent(scrollContainer.transform, false);
 
-            __instance.Cards_Container.AddComponent<ContentSizeFitter>().horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            // Reuse existing fitter if one exists to avoid duplicate component warnings.
+            ContentSizeFitter fitter = __instance.Cards_Container.GetComponent<ContentSizeFitter>();
+            if (fitter == null)
+            {
+                fitter = __instance.Cards_Container.AddComponent<ContentSizeFitter>();
+            }
+            fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+        }
+    }
+
+    /// <summary>
+    /// Tracks audition popup load start times so portrait loading can fail-safe instead of hanging forever.
+    /// </summary>
+    [HarmonyPatch(typeof(Popup_Audition), "Set")]
+    public class Popup_Audition_Set
+    {
+        /// <summary>
+        /// Postfix method that records when a new audition batch starts loading.
+        /// </summary>
+        /// <param name="__instance">Popup instance.</param>
+        public static void Postfix(Popup_Audition __instance)
+        {
+            if (__instance == null)
+            {
+                return;
+            }
+
+            auditionLoadStartedAt[__instance.GetInstanceID()] = Time.unscaledTime;
+        }
+    }
+
+    /// <summary>
+    /// Clears load watchdog state when audition popup is reset.
+    /// </summary>
+    [HarmonyPatch(typeof(Popup_Audition), "Reset")]
+    public class Popup_Audition_Reset
+    {
+        /// <summary>
+        /// Postfix method that removes stale watchdog entries.
+        /// </summary>
+        /// <param name="__instance">Popup instance.</param>
+        public static void Postfix(Popup_Audition __instance)
+        {
+            if (__instance == null)
+            {
+                return;
+            }
+
+            auditionLoadStartedAt.Remove(__instance.GetInstanceID());
+        }
+    }
+
+    /// <summary>
+    /// Clears load watchdog state when audition popup is closed.
+    /// </summary>
+    [HarmonyPatch(typeof(Popup_Audition), "Close")]
+    public class Popup_Audition_Close
+    {
+        /// <summary>
+        /// Prefix method that removes stale watchdog entries before close logic runs.
+        /// </summary>
+        /// <param name="__instance">Popup instance.</param>
+        public static void Prefix(Popup_Audition __instance)
+        {
+            if (__instance == null)
+            {
+                return;
+            }
+
+            auditionLoadStartedAt.Remove(__instance.GetInstanceID());
+        }
+    }
+
+    /// <summary>
+    /// Prevents recruitment popup deadlocks when one portrait never resolves.
+    /// </summary>
+    [HarmonyPatch(typeof(Popup_Audition), "PortraitsLoaded")]
+    public class Popup_Audition_PortraitsLoaded
+    {
+        /// <summary>
+        /// Postfix method that applies a timeout fallback for stuck portrait loading.
+        /// </summary>
+        /// <param name="__instance">Popup instance.</param>
+        /// <param name="__result">Original readiness result.</param>
+        public static void Postfix(Popup_Audition __instance, ref bool __result)
+        {
+            if (__result || __instance == null || __instance.Cards_Container == null)
+            {
+                return;
+            }
+
+            int popupId = __instance.GetInstanceID();
+            if (!auditionLoadStartedAt.TryGetValue(popupId, out float startedAt))
+            {
+                return;
+            }
+
+            float elapsed = Time.unscaledTime - startedAt;
+            if (elapsed < PORTRAIT_LOAD_TIMEOUT_SECONDS)
+            {
+                return;
+            }
+
+            // The vanilla coroutine waits indefinitely for all portraits. With large candidate counts this can
+            // deadlock the popup (blur shown, cards never become interactive). After timeout, continue anyway.
+            EnsurePopupIsVisible(__instance);
+            Sprite fallbackSprite = FindFallbackPortraitSprite(__instance);
+            bool missingPortraits = FillMissingPortraits(__instance, fallbackSprite);
+            if (missingPortraits)
+            {
+                Debug.Log("[Targeted Auditions] Portrait load timed out. Continuing with fallback portraits.");
+            }
+
+            __result = true;
+        }
+
+        private static void EnsurePopupIsVisible(Popup_Audition popup)
+        {
+            CanvasGroup cg = popup.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.blocksRaycasts = true;
+                cg.interactable = true;
+            }
+
+            RectTransform rt = popup.GetComponent<RectTransform>();
+            if (rt != null)
+            {
+                rt.localScale = Vector3.one;
+            }
+        }
+
+        private static Sprite FindFallbackPortraitSprite(Popup_Audition popup)
+        {
+            foreach (Transform child in popup.Cards_Container.transform)
+            {
+                Audition_Closed_Card closedCard = child.GetComponent<Audition_Closed_Card>();
+                if (closedCard == null || closedCard.Portrait == null)
+                {
+                    continue;
+                }
+
+                Image image = closedCard.Portrait.GetComponent<Image>();
+                if (image != null && image.sprite != null)
+                {
+                    return image.sprite;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool FillMissingPortraits(Popup_Audition popup, Sprite fallback)
+        {
+            bool hadMissing = false;
+            foreach (Transform child in popup.Cards_Container.transform)
+            {
+                Audition_Closed_Card closedCard = child.GetComponent<Audition_Closed_Card>();
+                if (closedCard == null || closedCard.Portrait == null)
+                {
+                    continue;
+                }
+
+                Image image = closedCard.Portrait.GetComponent<Image>();
+                if (image == null || image.sprite != null)
+                {
+                    continue;
+                }
+
+                hadMissing = true;
+                if (fallback != null)
+                {
+                    image.sprite = fallback;
+                }
+            }
+
+            return hadMissing;
         }
     }
 
@@ -305,6 +490,7 @@ namespace CustomAuditions
 
 
         public const string AUD_SCROLLRECT_NAME = "ScrollContainer";
+        public const float PORTRAIT_LOAD_TIMEOUT_SECONDS = 6f;
 
         public const string VARID_AGELIMIT_POPUP_TOGGLE = "AuditionAgeLimit_TogglePopup";
         public const string DEF_AGELIMIT_POPUP_TOGGLE = "0";
@@ -319,6 +505,7 @@ namespace CustomAuditions
 
         public static bool agePopup = false;
         public static bool inputValid = false;
+        public static Dictionary<int, float> auditionLoadStartedAt = new();
 
         /// <summary>
         /// Parses the age range string and sets the minAge and maxAge values.

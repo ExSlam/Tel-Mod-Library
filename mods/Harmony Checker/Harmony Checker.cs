@@ -11,7 +11,25 @@ namespace HarmonyChecker
 
         public static void Postfix(ref MainMenu_Buttons_Controller __instance)
         {
-            Lang_Button modButton = __instance.Main_Container.transform.Find("Mods").GetComponentInChildren<Lang_Button>();
+            // Safety: some UI variants rename/remove the Mods button.
+            // If that happens we should not throw here, because menu-time exceptions can prevent other mod hooks from running.
+            if (__instance == null || __instance.Main_Container == null)
+            {
+                return;
+            }
+
+            Transform modsTransform = __instance.Main_Container.transform.Find("Mods");
+            if (modsTransform == null)
+            {
+                return;
+            }
+
+            Lang_Button modButton = modsTransform.GetComponentInChildren<Lang_Button>();
+            if (modButton == null)
+            {
+                return;
+            }
+
             modButton.Constant = BUTTON_LABEL;
         }
     }

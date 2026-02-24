@@ -376,69 +376,79 @@ namespace UnofficialPatch
         private const int NoGirls = 0;
         // Offset for accessing the latest stats entry.
         private const int LastIndexOffset = 1;
-        // Parameters for the floating money UI icon.
-        private const float MoneyFloatStartScale = 0f;
-        private const float MoneyFloatEndScale = 1f;
-        private const float MoneyFloatDelay = 0f;
-
-        // Ensures Doing_Now reflects today's schedule before the base method runs.
-        public static bool Prefix()
-        {
-            foreach (Theaters._theater theater in Theaters.Theaters_)
-            {
-                // Force the schedule selection so auto schedules pay out today.
-                theater.Doing_Now = theater.GetSchedule().Type;
-            }
-            return true;
-        }
-
 
         // Fixes revenue accounting and income distribution after the base method completes.
         public static void Postfix()
         {
             foreach (Theaters._theater theater in Theaters.Theaters_)
             {
-                // Ensure auto schedules pay out on the same day when they convert to performance/manzai.
-                if (theater.GetSchedule().Type == Theaters._theater._schedule._type.auto &&
-                    (theater.Doing_Now == Theaters._theater._schedule._type.manzai || theater.Doing_Now == Theaters._theater._schedule._type.performance))
+                // Important: do not rewrite Doing_Now before vanilla runs.
+                // Vanilla uses yesterday's Doing_Now at the beginning of CompleteDay to settle previous-day revenue.
+                // We only read the stat row vanilla just wrote for "today" and correct payouts from that.
+                if (theater == null || theater.Stats == null || theater.Stats.Count == 0)
                 {
-                    long rev = theater.GetTicketSales();
-                    if (rev > NoRevenue)
-                    {
-                        // Add the earned revenue to player resources.
-                        resources.Add(resources.type.money, rev);
-                    }
-                    if (staticVars.dateTime.Day != FirstDayOfMonth)
-                    {
-                        // Show a money float icon on non-subscription days.
-                        theater.GetRoom().addFloat(Floats.type.icon_money, "", true, null, MoneyFloatStartScale, MoneyFloatEndScale, MoneyFloatDelay, null);
-                    }
+                    continue;
+                }
+
+                Theaters._theater._stat latestStat = theater.Stats[theater.Stats.Count - LastIndexOffset];
+                if (latestStat == null || latestStat.Schedule == null)
+                {
+                    continue;
                 }
 
                 // Days off should contribute zero revenue to stats.
-                if (theater.Doing_Now == Theaters._theater._schedule._type.day_off)
+                if (latestStat.Schedule.Type == Theaters._theater._schedule._type.day_off)
                 {
-                    theater.Stats[theater.Stats.Count - LastIndexOffset].Revenue = NoRevenue;
+                    latestStat.Revenue = NoRevenue;
+                    continue;
                 }
 
-                // Split ticket/subscription revenue among participating girls.
-                if (theater.Doing_Now == Theaters._theater._schedule._type.performance || theater.Doing_Now == Theaters._theater._schedule._type.manzai)
+                // Split ticket/subscription revenue among participants for actual show days.
+                bool isShowDay =
+                    latestStat.Schedule.Type == Theaters._theater._schedule._type.performance ||
+                    latestStat.Schedule.Type == Theaters._theater._schedule._type.manzai;
+                if (!isShowDay)
                 {
-                    List<data_girls.girls> girls = theater.GetGroup().GetGirls(true, false, null);
-                    int girlCount = girls.Count;
-                    long num = theater.GetTicketSales();
-                    if (theater.AreSubsUnlocked() && staticVars.dateTime.Day == FirstDayOfMonth)
+                    continue;
+                }
+
+                Groups._group group = theater.GetGroup();
+                if (group == null)
+                {
+                    continue;
+                }
+
+                List<data_girls.girls> girls = group.GetGirls(true, false, null);
+                int girlCount = girls != null ? girls.Count : NoGirls;
+                if (girlCount <= NoGirls)
+                {
+                    continue;
+                }
+
+                // Use the revenue value from the stat row vanilla just recorded for this day.
+                long payout = latestStat.Revenue;
+                if (theater.AreSubsUnlocked() && staticVars.dateTime.Day == FirstDayOfMonth)
+                {
+                    // Include monthly subscription revenue only on the first day, matching vanilla timing.
+                    payout += theater.GetSubRevenue();
+                }
+
+                if (payout <= NoRevenue)
+                {
+                    continue;
+                }
+
+                long split = payout / (long)girlCount;
+                if (split <= NoRevenue)
+                {
+                    continue;
+                }
+
+                foreach (data_girls.girls girl in girls)
+                {
+                    if (girl != null)
                     {
-                        // Include subscription revenue on the monthly payout day.
-                        num += theater.GetSubRevenue();
-                    }
-                    foreach (data_girls.girls girls2 in girls)
-                    {
-                        if (num > NoRevenue && girlCount > NoGirls)
-                        {
-                            // Divide revenue evenly across current participants.
-                            girls2.Earn(num / (long)girlCount);
-                        }
+                        girl.Earn(split);
                     }
                 }
             }
@@ -598,18 +608,24 @@ namespace UnofficialPatch
         public static void Prefix(Relationships._relationship __instance, ref bool __state)
         {
             // Capture whether the pair was dating before BreakUp clears the flag.
-            __state = __instance.Dating;
+            __state = __instance != null && __instance.Dating;
         }
 
         public static void Postfix(Relationships._relationship __instance, bool __state)
         {
             // Only clear known status when the pair was actually dating.
-            if (!__state)
+            if (!__state || __instance == null || __instance.Girls == null || __instance.Girls.Count < 2)
                 return;
 
             // Hide partner status for both sides after breakup.
-            __instance.Girls[FirstPartnerIndex].DatingData.Is_Partner_Status_Known = false;
-            __instance.Girls[SecondPartnerIndex].DatingData.Is_Partner_Status_Known = false;
+            if (__instance.Girls[FirstPartnerIndex] != null)
+            {
+                __instance.Girls[FirstPartnerIndex].DatingData.Is_Partner_Status_Known = false;
+            }
+            if (__instance.Girls[SecondPartnerIndex] != null)
+            {
+                __instance.Girls[SecondPartnerIndex].DatingData.Is_Partner_Status_Known = false;
+            }
         }
     }
 
@@ -846,50 +862,102 @@ namespace UnofficialPatch
     }
 
 
-    // Dating status is visible for underage members
+    // Dating status is visible for underage members.
+    // A postfix is safer than a transpiler here and avoids invalid IL after upstream changes.
     [HarmonyPatch(typeof(data_girls.girls), "GetPartnerString")]
     public class data_girls_girls_GetPartnerString
     {
-        // Offset to the instruction following the method call.
-        private const int NextInstructionOffset = 1;
-
-        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        public static void Postfix(data_girls.girls __instance, ref string __result)
         {
-            // Resolve the AOC check used by the early return in the base method.
-            MethodInfo isAoc = AccessTools.Method(typeof(data_girls.girls), "Is_AOC");
-            if (isAoc == null)
+            if (__instance == null)
             {
-                PatchLog.WarnOncePerPatch<data_girls_girls_GetPartnerString>("Is_AOC method lookup failed.");
-                return instructions;
+                return;
             }
 
-            var matcher = new CodeMatcher(instructions);
-            // Find the Is_AOC call that guards the early return.
-            matcher.MatchForward(false, new CodeMatch(ci => IlHelpers.IsCallTo(ci, isAoc)));
-
-            if (matcher.IsInvalid)
+            // Keep vanilla behavior for AOC members.
+            if (__instance.Is_AOC())
             {
-                PatchLog.WarnOncePerPatch<data_girls_girls_GetPartnerString>("Is_AOC call not found.");
-                return instructions;
+                return;
             }
 
-            matcher.Advance(NextInstructionOffset);
-            if (matcher.IsInvalid || !IlHelpers.IsBranchTrue(matcher.Instruction))
+            __result = BuildPartnerString(__instance);
+        }
+
+        private static string BuildPartnerString(data_girls.girls girl)
+        {
+            string text = "";
+            if (!girl.DatingData.Is_Partner_Status_Known)
             {
-                PatchLog.WarnOncePerPatch<data_girls_girls_GetPartnerString>("branch after Is_AOC not found.");
-                return instructions;
+                text += Language.Data["PROFILE__DATING_UNKNOWN"];
             }
-            if (!(matcher.Operand is Label))
+            else if (girl.DatingData.Partner_Status_Known_To_Player == data_girls.girls._dating_data._partner_status.free)
             {
-                PatchLog.WarnOncePerPatch<data_girls_girls_GetPartnerString>("branch target label not found.");
-                return instructions;
+                text += Language.Data["PROFILE__DATING_NOT_DATING"];
+            }
+            else if (girl.DatingData.Partner_Status_Known_To_Player == data_girls.girls._dating_data._partner_status.taken_idol)
+            {
+                data_girls.girls girlfriend = girl.GetGirlfriend();
+                if (girlfriend != null)
+                {
+                    text += Language.Insert("PROFILE__DATING_IDOL", new string[]
+                    {
+                        girlfriend.GetName(true)
+                    });
+                }
+                else
+                {
+                    text += Language.Data["PROFILE__DATING_IDOL_UNKNOWN"];
+                }
+            }
+            else if (girl.DatingData.Partner_Status_Known_To_Player == data_girls.girls._dating_data._partner_status.taken_outside_bf)
+            {
+                text += Language.Data["PROFILE__DATING_HAS_BF"];
+            }
+            else if (girl.DatingData.Partner_Status_Known_To_Player == data_girls.girls._dating_data._partner_status.taken_outside_gf)
+            {
+                text += Language.Data["PROFILE__DATING_HAS_GF"];
+            }
+            else if (girl.DatingData.Partner_Status_Known_To_Player == data_girls.girls._dating_data._partner_status.taken_player)
+            {
+                text += Language.Data["PROFILE__DATING_YOU"];
             }
 
-            // Always continue past the early return so status is shown for underage members.
-            // Preserve short/long branch size to avoid IL size issues.
-            OpCode newBranch = matcher.Opcode == OpCodes.Brtrue_S ? OpCodes.Br_S : OpCodes.Br;
-            matcher.Set(newBranch, matcher.Operand);
-            return matcher.InstructionEnumeration();
+            text += "\n";
+            if (girl.DatingData.Is_Sexuality_Known)
+            {
+                if (girl.sexuality == data_girls.girls._sexuality.straight)
+                {
+                    text += Language.Data["PROFILE__DATING_STRAIGHT"];
+                }
+                else if (girl.sexuality == data_girls.girls._sexuality.lesbian)
+                {
+                    text += Language.Data["PROFILE__DATING_LESBIAN"];
+                }
+                else
+                {
+                    text += Language.Data["PROFILE__DATING_BI"];
+                }
+            }
+            else
+            {
+                text += Language.Data["PROFILE__DATING_PREF_UNKNOWN"];
+            }
+
+            if (girl.DatingData.Previous_Attempt != Date_Flirt._flirt._category.NONE
+                && girl.DatingData.Partner_Status_Known_To_Player != data_girls.girls._dating_data._partner_status.taken_player)
+            {
+                text += "\n";
+                if (girl.DatingData.Is_Uninterested || (girl.DatingData.Is_Sexuality_Known && !Date_Flirt.IsCompatibleSexuality(girl)))
+                {
+                    text += Language.Data["PROFILE__DATING_NOT_INTERESTED"];
+                }
+                else
+                {
+                    text += Language.Data["PROFILE__DATING_INTERESTED"];
+                }
+            }
+
+            return text;
         }
     }
 
