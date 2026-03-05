@@ -24,6 +24,7 @@ namespace ModMenus
         public static void Postfix()
         {
             GenerateMenuPopup();
+            ModMenusBootstrap.EnsureButtonInstalled();
         }
     }
 
@@ -38,14 +39,100 @@ namespace ModMenus
         /// </summary>
         public static void Postfix()
         {
-            Transform settingsPanelTransform = Camera.main.GetComponent<mainScript>().Data.GetComponent<Tabs_Manager>().GetTab(Tabs_Manager._tab._type.settings).Tab.transform.Find("ScrollRect").Find("Container");
-            GameObject mainMenuButton = settingsPanelTransform.Find("Main Menu").gameObject;
-            GameObject modMenuButton = CloneButton(mainMenuButton, settingsPanelTransform, BUTTON_OBJ_NAME, BUTTON_LABEL, false, false);
-            modMenuButton.transform.SetSiblingIndex(settingsPanelTransform.childCount - 2);
-            modMenuButton.GetComponent<Button>().onClick.AddListener(() =>
+            ModMenusBootstrap.EnsureButtonInstalled();
+        }
+    }
+
+    /// <summary>
+    /// Re-runs button install when opening settings tab to survive late UI rebuilds.
+    /// </summary>
+    [HarmonyPatch(typeof(Tabs_Manager), nameof(Tabs_Manager.OpenTab))]
+    public class Tabs_Manager_OpenTab
+    {
+        public static void Postfix(Tabs_Manager._tab._type __0)
+        {
+            if (__0 == Tabs_Manager._tab._type.settings)
             {
-                PopupManager.OpenPopup((PopupManager._type)999);
-            });
+                ModMenusBootstrap.EnsureButtonInstalled();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Retries Mod Settings button installation until settings UI hierarchy is ready.
+    /// </summary>
+    public sealed class ModMenusBootstrap : MonoBehaviour
+    {
+        private const int MaxInstallAttempts = 240;
+        private const float RetryIntervalSeconds = 0.10f;
+        private const string LogPrefix = "[ModMenus] ";
+        private static ModMenusBootstrap instance;
+        private int attempts;
+        private float nextAttemptAt;
+
+        public static void EnsureButtonInstalled()
+        {
+            if (ModMenusUtils.TryInstallSettingsButton())
+            {
+                Debug.Log(LogPrefix + "Mod Settings button installed.");
+                DestroyInstance();
+                return;
+            }
+
+            if (instance != null)
+            {
+                return;
+            }
+
+            Camera camera = Camera.main;
+            if (camera == null)
+            {
+                return;
+            }
+
+            instance = camera.gameObject.GetComponent<ModMenusBootstrap>();
+            if (instance == null)
+            {
+                instance = camera.gameObject.AddComponent<ModMenusBootstrap>();
+            }
+
+            instance.attempts = 0;
+            instance.nextAttemptAt = Time.unscaledTime;
+        }
+
+        private static void DestroyInstance()
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            ModMenusBootstrap cached = instance;
+            instance = null;
+            if (cached != null)
+            {
+                UnityEngine.Object.Destroy(cached);
+            }
+        }
+
+        private void Update()
+        {
+            if (Time.unscaledTime < nextAttemptAt)
+            {
+                return;
+            }
+
+            nextAttemptAt = Time.unscaledTime + RetryIntervalSeconds;
+            attempts++;
+            if (ModMenusUtils.TryInstallSettingsButton() || attempts >= MaxInstallAttempts)
+            {
+                if (attempts >= MaxInstallAttempts)
+                {
+                    Debug.LogWarning(LogPrefix + "Failed to install Mod Settings button after retries.");
+                }
+
+                DestroyInstance();
+            }
         }
     }
 
@@ -93,6 +180,230 @@ namespace ModMenus
         public const string SCROLLBAR_OBJ_NAME = "VerticalScrollBar";
         public const string SCROLLRECT_OBJ_NAME = "ScrollContainer";
         public const string VIEWPORT_OBJ_NAME = "Viewport";
+
+        /// <summary>
+        /// Installs or repairs the Mod Settings button on the settings tab.
+        /// </summary>
+        public static bool TryInstallSettingsButton()
+        {
+            mainScript main = Camera.main != null ? Camera.main.GetComponent<mainScript>() : null;
+            if (main == null || main.Data == null)
+            {
+                return false;
+            }
+
+            Tabs_Manager tabsManager = main.Data.GetComponent<Tabs_Manager>();
+            if (tabsManager == null)
+            {
+                return false;
+            }
+
+            Tabs_Manager._tab settingsTab = tabsManager.GetTab(Tabs_Manager._tab._type.settings);
+            if (settingsTab == null || settingsTab.Tab == null)
+            {
+                return false;
+            }
+
+            Transform settingsContainer = FindSettingsContainer(settingsTab.Tab.transform);
+            if (settingsContainer == null)
+            {
+                return false;
+            }
+
+            Transform existingButton = FindNamedChild(settingsTab.Tab.transform, BUTTON_OBJ_NAME);
+            if (existingButton != null)
+            {
+                ConfigureModMenuButton(existingButton.gameObject);
+                return true;
+            }
+
+            GameObject templateButton = FindButtonTemplate(settingsContainer);
+            if (templateButton == null)
+            {
+                templateButton = FindButtonTemplate(settingsTab.Tab.transform);
+                if (templateButton == null || templateButton.transform.parent == null)
+                {
+                    return false;
+                }
+
+                settingsContainer = templateButton.transform.parent;
+            }
+
+            GameObject modMenuButton = CloneButton(templateButton, settingsContainer, BUTTON_OBJ_NAME, BUTTON_LABEL, false, false);
+            if (modMenuButton == null)
+            {
+                return false;
+            }
+
+            int maxIndex = Mathf.Max(0, settingsContainer.childCount - 1);
+            int targetIndex = Mathf.Clamp(settingsContainer.childCount - 2, 0, maxIndex);
+            modMenuButton.transform.SetSiblingIndex(targetIndex);
+            ConfigureModMenuButton(modMenuButton);
+
+            RectTransform settingsRect = settingsContainer as RectTransform;
+            if (settingsRect != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(settingsRect);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Finds the settings list container using strict path first, then robust fallback.
+        /// </summary>
+        private static Transform FindSettingsContainer(Transform settingsRoot)
+        {
+            if (settingsRoot == null)
+            {
+                return null;
+            }
+
+            Transform container = settingsRoot.Find("ScrollRect/Container");
+            if (container != null)
+            {
+                return container;
+            }
+
+            Transform[] descendants = settingsRoot.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < descendants.Length; i++)
+            {
+                Transform candidate = descendants[i];
+                if (candidate == null)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(candidate.name, "Container", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (candidate.GetComponent<VerticalLayoutGroup>() != null || candidate.GetComponent<GridLayoutGroup>() != null)
+                {
+                    return candidate;
+                }
+            }
+
+            Button[] buttons = settingsRoot.GetComponentsInChildren<Button>(true);
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                Button candidate = buttons[i];
+                if (candidate == null || candidate.gameObject == null || candidate.transform.parent == null)
+                {
+                    continue;
+                }
+
+                if (candidate.GetComponentInChildren<TextMeshProUGUI>(true) == null)
+                {
+                    continue;
+                }
+
+                Transform parent = candidate.transform.parent;
+                if (parent.GetComponent<LayoutGroup>() != null)
+                {
+                    return parent;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Finds a named descendant in a hierarchy using depth-first traversal.
+        /// </summary>
+        private static Transform FindNamedChild(Transform root, string childName)
+        {
+            if (root == null || string.IsNullOrEmpty(childName))
+            {
+                return null;
+            }
+
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < descendants.Length; i++)
+            {
+                Transform candidate = descendants[i];
+                if (candidate != null && string.Equals(candidate.name, childName, StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Finds one existing settings button to clone.
+        /// </summary>
+        private static GameObject FindButtonTemplate(Transform settingsContainer)
+        {
+            if (settingsContainer == null)
+            {
+                return null;
+            }
+
+            Transform mainMenuButton = settingsContainer.Find("Main Menu");
+            if (mainMenuButton != null)
+            {
+                return mainMenuButton.gameObject;
+            }
+
+            Button[] buttons = settingsContainer.GetComponentsInChildren<Button>(true);
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                Button candidate = buttons[i];
+                if (candidate == null || candidate.gameObject == null)
+                {
+                    continue;
+                }
+
+                if (candidate.GetComponentInChildren<TextMeshProUGUI>(true) != null)
+                {
+                    return candidate.gameObject;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Configures localized text and click action for the Mod Settings button.
+        /// </summary>
+        private static void ConfigureModMenuButton(GameObject modMenuButton)
+        {
+            if (modMenuButton == null)
+            {
+                return;
+            }
+
+            Transform textTransform = modMenuButton.transform.Find("Text");
+            if (textTransform != null)
+            {
+                Lang_Button languageBinding = textTransform.GetComponent<Lang_Button>();
+                if (languageBinding != null)
+                {
+                    languageBinding.Constant = BUTTON_LABEL;
+                }
+
+                TextMeshProUGUI label = textTransform.GetComponent<TextMeshProUGUI>();
+                if (label != null)
+                {
+                    label.text = Language.Data.TryGetValue(BUTTON_LABEL, out string localized) ? localized : BUTTON_LABEL;
+                }
+            }
+
+            Button button = modMenuButton.GetComponent<Button>();
+            if (button == null)
+            {
+                return;
+            }
+
+            button.onClick = new Button.ButtonClickedEvent();
+            button.onClick.AddListener(() =>
+            {
+                PopupManager.OpenPopup((PopupManager._type)999);
+            });
+        }
 
         /// <summary>
         /// Generates the main mod menu popup.
