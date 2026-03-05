@@ -1202,4 +1202,55 @@ namespace UnofficialPatch
         }
     }
 
+    // Base game bugfix:
+    // SaveManager.LoadData(...) assigns SaveManager.Data = null when the target file is missing/corrupt,
+    // then returns early ("huh"). Autosave later calls SaveEvent, and staticVars.SaveFunction crashes
+    // because Camera.main.GetComponent<mainScript>().GetSavedData() is null.
+    //
+    // Fix:
+    // Preserve the previous in-memory SaveManager.Data before LoadData runs; if LoadData exits with null Data,
+    // restore the previous data (or a fresh SavedData fallback) so autosave and SaveEvent subscribers remain safe.
+    [HarmonyPatch(typeof(SaveManager), "LoadData", new Type[] { typeof(bool) })]
+    public class SaveManager_LoadData_Bool_NullGuard
+    {
+        private const string WarningMessage =
+            "LoadData(bool) left SaveManager.Data null. Restored previous in-memory save data to prevent SaveEvent/autosave null crash.";
+
+        public static void Prefix(SaveManager __instance, ref SaveManager.SavedData __state)
+        {
+            __state = __instance != null ? __instance.Data : null;
+        }
+
+        public static void Postfix(SaveManager __instance, SaveManager.SavedData __state)
+        {
+            if (__instance == null || __instance.Data != null)
+                return;
+
+            __instance.Data = __state ?? new SaveManager.SavedData();
+            PatchLog.WarnOncePerPatch<SaveManager_LoadData_Bool_NullGuard>(WarningMessage);
+        }
+    }
+
+    // Same null-guard for the string-path overload used by some load flows and mods.
+    [HarmonyPatch(typeof(SaveManager), "LoadData", new Type[] { typeof(string) })]
+    public class SaveManager_LoadData_Path_NullGuard
+    {
+        private const string WarningMessage =
+            "LoadData(string) left SaveManager.Data null. Restored previous in-memory save data to prevent SaveEvent/autosave null crash.";
+
+        public static void Prefix(SaveManager __instance, ref SaveManager.SavedData __state)
+        {
+            __state = __instance != null ? __instance.Data : null;
+        }
+
+        public static void Postfix(SaveManager __instance, SaveManager.SavedData __state)
+        {
+            if (__instance == null || __instance.Data != null)
+                return;
+
+            __instance.Data = __state ?? new SaveManager.SavedData();
+            PatchLog.WarnOncePerPatch<SaveManager_LoadData_Path_NullGuard>(WarningMessage);
+        }
+    }
+
 }
