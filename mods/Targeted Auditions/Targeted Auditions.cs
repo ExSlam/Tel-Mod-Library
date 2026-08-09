@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Reflection.Emit;
@@ -81,16 +81,14 @@ namespace CustomAuditions
     }
 
     /// <summary>
-    /// Tracks audition popup load start times so portrait loading can fail-safe instead of hanging forever.
+    /// Tracks audition popup loading from the moment Set begins.
+    /// Starting before the original Set keeps the watchdog state aligned with
+    /// Assistant Manager's delayed per-manager audition handoff.
     /// </summary>
-    [HarmonyPatch(typeof(Popup_Audition), "Set")]
+    [HarmonyPatch(typeof(Popup_Audition), "Set", new Type[] { typeof(Auditions.data), typeof(bool) })]
     public class Popup_Audition_Set
     {
-        /// <summary>
-        /// Postfix method that records when a new audition batch starts loading.
-        /// </summary>
-        /// <param name="__instance">Popup instance.</param>
-        public static void Postfix(Popup_Audition __instance)
+        public static void Prefix(Popup_Audition __instance)
         {
             if (__instance == null)
             {
@@ -98,6 +96,26 @@ namespace CustomAuditions
             }
 
             auditionLoadStartedAt[__instance.GetInstanceID()] = Time.unscaledTime;
+        }
+
+        public static Exception Finalizer(Popup_Audition __instance, Exception __exception)
+        {
+            if (__exception == null)
+            {
+                return null;
+            }
+
+            if (__instance != null)
+            {
+                auditionLoadStartedAt.Remove(__instance.GetInstanceID());
+            }
+
+            Debug.LogError(
+                "[Targeted Auditions] Popup_Audition.Set failed:\n" +
+                __exception);
+
+            // Preserve the original exception.
+            return __exception;
         }
     }
 
@@ -263,25 +281,7 @@ namespace CustomAuditions
         /// <param name="__instance">The instance of Auditions being patched.</param>
         public static void Prefix(Auditions __instance)
         {
-            // Set audition age limits (only if popup is not used)
-            bool toggle = int.Parse(variables.Get(VARID_AGELIMIT_POPUP_TOGGLE) ?? DEF_AGELIMIT_POPUP_TOGGLE) == 1;
-            if (!toggle)
-            {
-                minAge = int.Parse(variables.Get(VARID_MINAGE) ?? DEF_MINAGE_STR);
-                maxAge = int.Parse(variables.Get(VARID_MAXAGE) ?? DEF_MAXAGE_STR);
-                if (maxAge < minAge)
-                {
-                    // swap values
-                    maxAge = int.Parse(variables.Get(VARID_MINAGE) ?? DEF_MAXAGE_STR);
-                    minAge = int.Parse(variables.Get(VARID_MAXAGE) ?? DEF_MINAGE_STR);
-
-                    // correct default variables
-                    defaultMaxAge = maxAge;
-                    defaultMinAge = minAge;
-                    variables.Set(VARID_MAXAGE, maxAge.ToString());
-                    variables.Set(VARID_MINAGE, minAge.ToString());
-                }
-            }
+            LoadConfiguredAgeRange();
 
             // Set sexual orientation
             float varLesbian = float.Parse(variables.Get(VARID_LESCHANCE) ?? DEF_CHANCE_LES_STR);
@@ -309,6 +309,19 @@ namespace CustomAuditions
             __instance.NumberOfGirls = int.Parse(variables.Get(VARID_COUNT) ?? DEF_COUNT);
 
 
+        }
+
+        public static Exception Finalizer(Exception __exception)
+        {
+            if (__exception != null)
+            {
+                Debug.LogError(
+                    "[Targeted Auditions] Auditions.GenerateGirls failed:\n" +
+                    __exception);
+            }
+
+            // Preserve the original exception.
+            return __exception;
         }
     }
 
@@ -428,44 +441,19 @@ namespace CustomAuditions
     {
         public static void Postfix(ref data_girls.girls __instance)
         {
-            DateTime dateTime = staticVars.dateTime
-                .AddYears(-maxAge - 1)
-                .AddYears(UnityEngine.Random.Range(0, maxAge - minAge + 1))
-                .AddMonths(UnityEngine.Random.Range(0, 12))
-                .AddDays(UnityEngine.Random.Range(0, 31));
-            __instance.SetBirthday(dateTime);
+            ApplyRandomBirthdayInConfiguredRange(__instance);
         }
     }
 
     /// <summary>
-    /// Patches the CM_Player_Audition_Button class to handle age input popup. (obsolete)
+    /// Loads Targeted Auditions settings before scripted unique-idol auditions generate candidates.
     /// </summary>
-    [HarmonyPatch(typeof(CM_Player_Audition_Button), "OnClick")]
-    public class Auditions_GenerateAudition
+    [HarmonyPatch(typeof(Auditions), "CustomAudition", new Type[] { typeof(string) })]
+    public class Auditions_CustomAudition_String
     {
-        /// <summary>
-        /// Postfix method to show the age input popup if enabled. (disabled)
-        /// </summary>
-        public static void Postfix()
+        public static void Prefix()
         {
-            bool toggle = int.Parse(variables.Get(VARID_AGELIMIT_POPUP_TOGGLE) ?? DEF_AGELIMIT_POPUP_TOGGLE) == 1;
-            if (toggle)
-            {
-                defaultMinAge = int.Parse(variables.Get(VARID_MINAGE) ?? DEF_MINAGE_STR);
-                defaultMaxAge = int.Parse(variables.Get(VARID_MAXAGE) ?? DEF_MAXAGE_STR);
-                if (defaultMaxAge < defaultMinAge)
-                {
-                    // swap values
-                    defaultMaxAge = int.Parse(variables.Get(VARID_MINAGE) ?? DEF_MAXAGE_STR);
-                    defaultMinAge = int.Parse(variables.Get(VARID_MAXAGE) ?? DEF_MINAGE_STR);
-
-                    // correct variables
-                    variables.Set(VARID_MAXAGE, maxAge.ToString());
-                    variables.Set(VARID_MINAGE, minAge.ToString());
-                }
-                agePopup = true;
-                Camera.main.GetComponent<mainScript>().Data.GetComponent<PopupManager>().Open(PopupManager._type.staff_nickname, true);
-            }
+            LoadConfiguredAgeRange();
         }
     }
 
@@ -577,6 +565,41 @@ namespace CustomAuditions
         };
 
         public static Dictionary<data_girls._paramType, int> priorityDict = new();
+
+        public static void LoadConfiguredAgeRange()
+        {
+            // The former per-audition age popup is retired. Always use the Mod Menu range.
+            variables.Set(VARID_AGELIMIT_POPUP_TOGGLE, DEF_AGELIMIT_POPUP_TOGGLE);
+
+            minAge = int.Parse(variables.Get(VARID_MINAGE) ?? DEF_MINAGE_STR);
+            maxAge = int.Parse(variables.Get(VARID_MAXAGE) ?? DEF_MAXAGE_STR);
+            if (maxAge < minAge)
+            {
+                int originalMinAge = minAge;
+                minAge = maxAge;
+                maxAge = originalMinAge;
+
+                defaultMaxAge = maxAge;
+                defaultMinAge = minAge;
+                variables.Set(VARID_MAXAGE, maxAge.ToString());
+                variables.Set(VARID_MINAGE, minAge.ToString());
+            }
+        }
+
+        public static void ApplyRandomBirthdayInConfiguredRange(data_girls.girls girl)
+        {
+            if (girl == null)
+            {
+                return;
+            }
+
+            DateTime dateTime = staticVars.dateTime
+                .AddYears(-maxAge - 1)
+                .AddYears(UnityEngine.Random.Range(0, maxAge - minAge + 1))
+                .AddMonths(UnityEngine.Random.Range(0, 12))
+                .AddDays(UnityEngine.Random.Range(0, 31));
+            girl.SetBirthday(dateTime);
+        }
 
     }
 }
