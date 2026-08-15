@@ -227,7 +227,11 @@ This changelog covers changes made after the `main` branch point at commit `1c6d
 
 ### ModMenus
 - **`mods/ModMenus/ModMenus.cs`**
-  - Fixed ModMenus button injection to detect when the setting tab is selected, reduceding lag.
+  - Fixed ModMenus button injection to detect when the setting tab is selected, reducing lag.
+
+### Policies That Matter
+- **`mods/Policies That Matter/Policies That Matter.cs`**
+  - Added function that removes duplicate policy definitions after the game has loaded all policy JSON files
 
 ### Shared StatLimits library
 
