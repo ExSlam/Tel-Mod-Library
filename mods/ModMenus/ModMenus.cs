@@ -13,125 +13,25 @@ using static ModMenus.ModMenusUtils;
 namespace ModMenus
 {
     /// <summary>
-    /// Ensures the mod menu popup is available when the game starts.
-    /// </summary>
-    [HarmonyPatch(typeof(PopupManager), "Start")]
-    public class PopupManager_Start
-    {
-        /// <summary>
-        /// Postfix method that generates the mod menu popup.
-        /// </summary>
-        public static void Postfix()
-        {
-            GenerateMenuPopup();
-            ModMenusBootstrap.EnsureButtonInstalled();
-        }
-    }
-
-    /// <summary>
-    /// Integrates the mod menu access point into the game's existing UI.
-    /// </summary>
-    [HarmonyPatch(typeof(Tabs_Manager), "Awake")]
-    public class Tabs_Manager_Awake
-    {
-        /// <summary>
-        /// Postfix method that adds a mod menu button to the settings panel.
-        /// </summary>
-        public static void Postfix()
-        {
-            ModMenusBootstrap.EnsureButtonInstalled();
-        }
-    }
-
-    /// <summary>
-    /// Re-runs button install when opening settings tab to survive late UI rebuilds.
+    /// Lazily installs ModMenus only when the player opens the in-game Settings tab.
+    /// This intentionally does no work on the main menu or while a game is loading.
     /// </summary>
     [HarmonyPatch(typeof(Tabs_Manager), nameof(Tabs_Manager.OpenTab))]
     public class Tabs_Manager_OpenTab
     {
         public static void Postfix(Tabs_Manager._tab._type __0)
         {
-            if (__0 == Tabs_Manager._tab._type.settings)
-            {
-                ModMenusBootstrap.EnsureButtonInstalled();
-            }
-        }
-    }
-
-    /// <summary>
-    /// Retries Mod Settings button installation until settings UI hierarchy is ready.
-    /// </summary>
-    public sealed class ModMenusBootstrap : MonoBehaviour
-    {
-        private const int MaxInstallAttempts = 240;
-        private const float RetryIntervalSeconds = 0.10f;
-        private const string LogPrefix = "[ModMenus] ";
-        private static ModMenusBootstrap instance;
-        private int attempts;
-        private float nextAttemptAt;
-
-        public static void EnsureButtonInstalled()
-        {
-            if (ModMenusUtils.TryInstallSettingsButton())
-            {
-                Debug.Log(LogPrefix + "Mod Settings button installed.");
-                DestroyInstance();
-                return;
-            }
-
-            if (instance != null)
+            if (__0 != Tabs_Manager._tab._type.settings || !ModMenusUtils.IsGameplayReady())
             {
                 return;
             }
 
-            Camera camera = Camera.main;
-            if (camera == null)
+            // The Settings hierarchy is active by the time this postfix runs, so install
+            // the button once without any background retry loop. The heavier mod-menu
+            // popup is generated only if the player actually clicks Mod Settings.
+            if (!ModMenusUtils.TryInstallSettingsButton())
             {
-                return;
-            }
-
-            instance = camera.gameObject.GetComponent<ModMenusBootstrap>();
-            if (instance == null)
-            {
-                instance = camera.gameObject.AddComponent<ModMenusBootstrap>();
-            }
-
-            instance.attempts = 0;
-            instance.nextAttemptAt = Time.unscaledTime;
-        }
-
-        private static void DestroyInstance()
-        {
-            if (instance == null)
-            {
-                return;
-            }
-
-            ModMenusBootstrap cached = instance;
-            instance = null;
-            if (cached != null)
-            {
-                UnityEngine.Object.Destroy(cached);
-            }
-        }
-
-        private void Update()
-        {
-            if (Time.unscaledTime < nextAttemptAt)
-            {
-                return;
-            }
-
-            nextAttemptAt = Time.unscaledTime + RetryIntervalSeconds;
-            attempts++;
-            if (ModMenusUtils.TryInstallSettingsButton() || attempts >= MaxInstallAttempts)
-            {
-                if (attempts >= MaxInstallAttempts)
-                {
-                    Debug.LogWarning(LogPrefix + "Failed to install Mod Settings button after retries.");
-                }
-
-                DestroyInstance();
+                Debug.LogWarning("[ModMenus] Could not install the Mod Settings button in the active in-game Settings tab.");
             }
         }
     }
@@ -182,15 +82,40 @@ namespace ModMenus
         public const string VIEWPORT_OBJ_NAME = "Viewport";
 
         /// <summary>
-        /// Installs or repairs the Mod Settings button on the settings tab.
+        /// Returns true only after a gameplay scene is active and its game-only data exists.
+        /// The title screen intentionally fails this check.
         /// </summary>
-        public static bool TryInstallSettingsButton()
+        public static bool IsGameplayReady()
         {
-            mainScript main = Camera.main != null ? Camera.main.GetComponent<mainScript>() : null;
-            if (main == null || main.Data == null)
+            Camera camera = Camera.main;
+            if (camera == null)
             {
                 return false;
             }
+
+            mainScript main = camera.GetComponent<mainScript>();
+            if (main == null || main.Data == null || !main.IsGameScene)
+            {
+                return false;
+            }
+
+            // mainScript.IsMainMenu() uses this same component as the distinction between
+            // the title screen and a loaded game. Checking it directly avoids calling the
+            // static helper while scene objects are still being constructed.
+            return main.Data.GetComponent<SpecialEvents_Manager>() != null;
+        }
+
+        /// <summary>
+        /// Installs or repairs the Mod Settings button on the active in-game settings tab.
+        /// </summary>
+        public static bool TryInstallSettingsButton()
+        {
+            if (!IsGameplayReady())
+            {
+                return false;
+            }
+
+            mainScript main = Camera.main.GetComponent<mainScript>();
 
             Tabs_Manager tabsManager = main.Data.GetComponent<Tabs_Manager>();
             if (tabsManager == null)
@@ -199,7 +124,7 @@ namespace ModMenus
             }
 
             Tabs_Manager._tab settingsTab = tabsManager.GetTab(Tabs_Manager._tab._type.settings);
-            if (settingsTab == null || settingsTab.Tab == null)
+            if (settingsTab == null || settingsTab.Tab == null || !settingsTab.Tab.activeInHierarchy)
             {
                 return false;
             }
@@ -401,6 +326,12 @@ namespace ModMenus
             button.onClick = new Button.ButtonClickedEvent();
             button.onClick.AddListener(() =>
             {
+                if (!IsGameplayReady())
+                {
+                    return;
+                }
+
+                GenerateMenuPopup();
                 PopupManager.OpenPopup((PopupManager._type)999);
             });
         }
