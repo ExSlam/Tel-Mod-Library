@@ -522,7 +522,7 @@ namespace ModMenus
                                 minValue = item[JSON_FIELD_MIN].AsFloat;
                                 maxValue = item[JSON_FIELD_MAX].AsFloat;
                             }
-                            float defaultFloat = maxValue + minValue / 2;
+                            float defaultFloat = (maxValue + minValue) / 2f;
                             if (!string.IsNullOrEmpty(item[JSON_FIELD_DEF]))
                             {
                                 defaultFloat = item[JSON_FIELD_DEF].AsFloat;
