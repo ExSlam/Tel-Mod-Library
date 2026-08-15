@@ -279,8 +279,9 @@ namespace CustomAuditions
         /// Prefix method to set audition parameters before generating girls.
         /// </summary>
         /// <param name="__instance">The instance of Auditions being patched.</param>
-        public static void Prefix(Auditions __instance)
+        public static void Prefix(Auditions __instance, out bool __state)
         {
+            __state = false;
             LoadConfiguredAgeRange();
 
             // Set sexual orientation
@@ -308,11 +309,16 @@ namespace CustomAuditions
             // Set girl count
             __instance.NumberOfGirls = int.Parse(variables.Get(VARID_COUNT) ?? DEF_COUNT);
 
-
+            BeginAuditionGeneration();
+            __state = true;
         }
 
-        public static Exception Finalizer(Exception __exception)
+        public static Exception Finalizer(Exception __exception, bool __state)
         {
+            if (__state)
+            {
+                EndAuditionGeneration();
+            }
             if (__exception != null)
             {
                 Debug.LogError(
@@ -332,15 +338,31 @@ namespace CustomAuditions
     public class data_girls_GenerateGirl
     {
         /// <summary>
-        /// Postfix method to set the sexuality of a generated girl.
+        /// Before an audition candidate is generated, allow body IDs to repeat only after
+        /// every currently eligible body ID has been used once in this audition.
+        /// </summary>
+        public static void Prefix(bool genTextures, data_girls_textures._textureAsset BodyAsset)
+        {
+            if (!IsGeneratingAudition || !genTextures || BodyAsset != null)
+            {
+                return;
+            }
+
+            if (!HasUnusedEligibleBody())
+            {
+                Auditions.UsedBodyIDs.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Postfix method to set the sexuality of a generated audition candidate.
         /// </summary>
         /// <param name="__result">The generated girl data.</param>
         public static void Postfix(ref data_girls.girls __result)
         {
-            int girlCount = int.Parse(variables.Get(VARID_COUNT) ?? DEF_COUNT);
-            if (girlCount > 12)
+            if (!IsGeneratingAudition || __result == null)
             {
-                Auditions.UsedBodyIDs.Clear();
+                return;
             }
 
             data_girls.girls._sexuality sexuality = data_girls.girls._sexuality.straight;
@@ -398,6 +420,11 @@ namespace CustomAuditions
         /// <returns>A new list of assigned stat values.</returns>
         public static List<int> Infix(List<int> statValues)
         {
+            if (!IsGeneratingAudition)
+            {
+                return statValues;
+            }
+
             List<int> output = new(statValues);
             Dictionary<data_girls._paramType, int> priorityDictTemp = new(priorityDict);
             List<data_girls._paramType> remainingParamTypes = priorityDictTemp.Keys.ToList();
@@ -441,19 +468,10 @@ namespace CustomAuditions
     {
         public static void Postfix(ref data_girls.girls __instance)
         {
-            ApplyRandomBirthdayInConfiguredRange(__instance);
-        }
-    }
-
-    /// <summary>
-    /// Loads Targeted Auditions settings before scripted unique-idol auditions generate candidates.
-    /// </summary>
-    [HarmonyPatch(typeof(Auditions), "CustomAudition", new Type[] { typeof(string) })]
-    public class Auditions_CustomAudition_String
-    {
-        public static void Prefix()
-        {
-            LoadConfiguredAgeRange();
+            if (IsGeneratingAudition)
+            {
+                ApplyRandomBirthdayInConfiguredRange(__instance);
+            }
         }
     }
 
@@ -566,6 +584,37 @@ namespace CustomAuditions
 
         public static Dictionary<data_girls._paramType, int> priorityDict = new();
 
+        private static int auditionGenerationDepth = 0;
+        public static bool IsGeneratingAudition => auditionGenerationDepth > 0;
+
+        public static void BeginAuditionGeneration()
+        {
+            auditionGenerationDepth++;
+        }
+
+        public static void EndAuditionGeneration()
+        {
+            if (auditionGenerationDepth > 0)
+            {
+                auditionGenerationDepth--;
+            }
+        }
+
+        public static bool HasUnusedEligibleBody()
+        {
+            if (data_girls_textures.textureAssets == null)
+            {
+                return false;
+            }
+
+            return data_girls_textures.textureAssets.Any(asset =>
+                asset != null &&
+                !asset.Add_To_Default &&
+                asset.type == data_girls_textures._spriteType.body &&
+                !Auditions.UsedBodyIDs.Contains(asset.body_id) &&
+                asset.CanBeHired());
+        }
+
         public static void LoadConfiguredAgeRange()
         {
             // The former per-audition age popup is retired. Always use the Mod Menu range.
@@ -593,11 +642,11 @@ namespace CustomAuditions
                 return;
             }
 
-            DateTime dateTime = staticVars.dateTime
-                .AddYears(-maxAge - 1)
-                .AddYears(UnityEngine.Random.Range(0, maxAge - minAge + 1))
-                .AddMonths(UnityEngine.Random.Range(0, 12))
-                .AddDays(UnityEngine.Random.Range(0, 31));
+            int age = UnityEngine.Random.Range(minAge, maxAge + 1);
+            DateTime latestBirthday = staticVars.dateTime.AddYears(-age);
+            DateTime earliestBirthday = staticVars.dateTime.AddYears(-age - 1).AddDays(1);
+            int possibleDays = (latestBirthday - earliestBirthday).Days + 1;
+            DateTime dateTime = earliestBirthday.AddDays(UnityEngine.Random.Range(0, possibleDays));
             girl.SetBirthday(dateTime);
         }
 
