@@ -600,14 +600,19 @@ namespace CustomAuditions
             }
         }
 
+        private static readonly System.Reflection.FieldInfo textureAssetsField =
+            AccessTools.Field(typeof(data_girls_textures), "textureAssets");
+
         public static bool HasUnusedEligibleBody()
         {
-            if (data_girls_textures.textureAssets == null)
+            List<data_girls_textures._textureAsset> textureAssets =
+                textureAssetsField?.GetValue(null) as List<data_girls_textures._textureAsset>;
+            if (textureAssets == null)
             {
                 return false;
             }
 
-            return data_girls_textures.textureAssets.Any(asset =>
+            return textureAssets.Any(asset =>
                 asset != null &&
                 !asset.Add_To_Default &&
                 asset.type == data_girls_textures._spriteType.body &&
