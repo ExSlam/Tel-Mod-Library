@@ -1,3 +1,4 @@
+
 # Going Viral 1.0.1
 
 ## Crash/data-corruption fixes
@@ -74,3 +75,16 @@
 - Already-announced idols cannot complete date-driven graduation while the mod is enabled.
 - Direct firing still works, preserving the original "unless the girl is fired" behavior.
 ---
+
+## Correctness fixes
+
+- **MBTI Personalities**: fixed ISTP concert accident handling so the trait halves the remaining failure chance while keeping AccidentSuccessChance in 0-100 percentage units.
+- **Extended SSK**: fame bonuses for ranks beyond 10 now read GetFameBaseVal from the current election instance instead of a delegate permanently bound to the first election.
+- **Fan Attrition**: restored floating-point division in the MC fame coefficient so fame 1-3 and other low-fame values receive the intended quadratic boost.
+- **Growing Distant**: salary-based positive influence is now capped at the vanilla 512-point relationship maximum, preventing hidden overflow points that delay later decay.
+- **ModMenus**: corrected the omitted slider default to the arithmetic midpoint, (min + max) / 2.
+- **Stale Theater Shows**: repaired the attendance transpiler branch target so normal ticket-price execution passes through the custom attendance multiplier.
+- **Traits Expansion**: Sadistic now detects active bullies rather than bullied victims, and Wooden Acting / Quick Wit now apply true -50% / +50% multiplicative business reward modifiers.
+- **Targeted Auditions**: settings are now scoped to Auditions.GenerateGirls, preventing age/stat/sexuality settings from leaking into rival, story, unique, or other non-audition girl generation.
+- **Targeted Auditions**: body IDs remain unique until the currently eligible audition body pool is exhausted; only then are IDs recycled for larger candidate counts.
+- **Targeted Auditions**: birthday generation now produces ages exactly within the configured inclusive minimum/maximum range, eliminating the max-age + 1 boundary case.
