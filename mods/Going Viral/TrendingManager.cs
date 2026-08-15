@@ -193,7 +193,7 @@ namespace GoingViral
                 int days = Math.Max(0, (staticVars.dateTime - lastShowDate.Value).Days);
                 daysSinceCoeff = Math.Min(365, days) / 365f;
             }
-            return Mathf.Clamp(15f * daysSinceCoeff * fameCoeff * levelCoeff, 0f, 100f);
+            return Mathf.Clamp(15f * daysSinceCoeff * fameCoeff * levelCoeff, 0f, 15f);
         }
 
         public static long GetTrendingMagnitude(Shows._show show)
