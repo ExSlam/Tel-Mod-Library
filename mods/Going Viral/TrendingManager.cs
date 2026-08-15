@@ -147,32 +147,49 @@ namespace GoingViral
             if (show == null || show.genre == null || show.medium == null || show.medium.media_type != Shows._param._media_type.tv)
                 return 0f;
 
-            float fameCoeff = 0f;
-            if (show.fame != null && show.fame.Count > 0)
-                fameCoeff += show.fame[0] / 20f;
-
-            float fameSum = 0f;
-            int count = 0;
+            // Normalize cast fame from vanilla's 0-10 fame scale to 0-1.
+            float castCoeff = 0f;
             if (show.castType == Shows._show._castType.entireGroup)
             {
-                fameSum = resources.GetFameLevel();
-                count = 1;
+                castCoeff = Mathf.Clamp01(resources.GetFameLevel() / 10f);
             }
             else if (show.girls != null)
             {
+                float fameSum = 0f;
+                int count = 0;
                 foreach (data_girls.girls girl in show.girls)
                 {
-                    if (girl == null) continue;
+                    if (girl == null)
+                        continue;
+
                     fameSum += girl.GetFameLevel();
                     count++;
                 }
-            }
-            if (count > 0)
-                fameCoeff += (fameSum / count) / 20f;
-            if (show.mc != null)
-                fameCoeff += show.mc.fame / 20f;
 
-            float levelCoeff = show.genre.GetLevel() / 5f + 0.5f;
+                if (count > 0)
+                    castCoeff = Mathf.Clamp01((fameSum / count) / 10f);
+            }
+
+            // Normalize genre level from the vanilla 0-10 level scale to 0-1.
+            float genreCoeff = Mathf.Clamp01(show.genre.GetLevel() / 10f);
+
+            // Combine the applicable quality factors instead of multiplying them.
+            // This mirrors Going Viral's single-trend design: build one normalized
+            // quality score first, then apply the maximum trend chance.
+            float qualityTotal = castCoeff + genreCoeff;
+            int qualityFactors = 2;
+
+            // Only count MC fame when the show actually has an MC. A show without
+            // an MC therefore isn't automatically penalized by a zero-valued factor.
+            if (show.mc != null)
+            {
+                float mcCoeff = Mathf.Clamp01(show.mc.fame / 10f);
+                qualityTotal += mcCoeff;
+                qualityFactors++;
+            }
+
+            float qualityCoeff = qualityTotal / qualityFactors;
+
             DateTime? lastShowDate = null;
             if (Shows.shows != null)
             {
@@ -187,13 +204,17 @@ namespace GoingViral
                 }
             }
 
+            // No previous TV show of this genre means maximum freshness.
             float daysSinceCoeff = 1f;
             if (lastShowDate.HasValue)
             {
                 int days = Math.Max(0, (staticVars.dateTime - lastShowDate.Value).Days);
                 daysSinceCoeff = Math.Min(365, days) / 365f;
             }
-            return Mathf.Clamp(15f * daysSinceCoeff * fameCoeff * levelCoeff, 0f, 15f);
+
+            // Both coefficients are bounded to 0-1, so 15f is now a true maximum
+            // rather than a base multiplier that can balloon above 15%.
+            return Mathf.Clamp(15f * daysSinceCoeff * qualityCoeff, 0f, 15f);
         }
 
         public static long GetTrendingMagnitude(Shows._show show)
