@@ -245,3 +245,15 @@ This changelog covers changes made after the `main` branch point at commit `1c6d
   - Standardized numeric caps through `Mathf.Clamp` while preserving the existing limits: business proposal coefficients remain `0..20`, and show/senbatsu/concert/team-chemistry stats remain `0..100`.
   - Added null/empty guards for senbatsu results and cast-parameter lists so the limit patches do not throw when a game/mod call returns no parameter object.
   - Removed `LINQ Last()` dependencies in cast-parameter patches and accesses the final element only after confirming the list is non-empty.
+
+## 2026-08-16
+
+### ModMenus
+
+- **`mods/ModMenus/ModMenus.cs`**
+  - Changed **Mod Settings** placement to use the vanilla `Settings` GameObject as its explicit ordering anchor, keeping the lookup independent of the button's localized display text.
+  - Changed the vanilla `Settings` button to be the Mod Settings button's clone template as well as its sole ordering anchor.
+  - Existing `ModMenuButton` instances are now reconfigured and repositioned immediately after the vanilla Settings button whenever the Settings tab is activated, repairing their ordering if another UI modification previously moved them.
+  - Removed Save & Quit/Main Menu and `childCount`-relative placement from Mod Settings ordering, leaving later positions available for other mods to insert their own settings buttons independently.
+- **`mods/ModMenus/ModMenus.csproj`**
+  - Version increased from **1.0.1** to **1.0.2**.
