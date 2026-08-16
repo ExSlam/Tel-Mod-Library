@@ -233,6 +233,12 @@ This changelog covers changes made after the `main` branch point at commit `1c6d
 - **`mods/Policies That Matter/Policies That Matter.cs`**
   - Added function that removes duplicate policy definitions after the game has loaded all policy JSON files
 
+## Harmony Checker
+- **`mods/Harmony Checker/Harmony Checker.cs`**
+  - Keeps the existing `MainMenu_Buttons_Controller.Start` check.
+  - Adds a post-mod-load refresh via `Mods.StopSpinner`, which runs after `Mods.LoadMods` in the vanilla mod-loading coroutine.
+  - Calls `Lang_Button.ResetText()` after changing the constant so an already-started button visibly updates to `Mods [IM-HI installed`.
+
 ### Shared StatLimits library
 
 - **`shared/StatLimits/StatLimits.cs`**
