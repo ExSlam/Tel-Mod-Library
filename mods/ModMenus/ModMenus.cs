@@ -68,6 +68,7 @@ namespace ModMenus
 
 
         public const string BUTTON_OBJ_NAME = "ModMenuButton";
+        public const string SETTINGS_BUTTON_OBJ_NAME = "Settings";
         public const string POPUP_OBJ_NAME = "ModMenu";
         public const string APPLYBUTTON_OBJ_NAME = "ModMenuApply";
         public const string CANCELBUTTON_OBJ_NAME = "ModMenuCancel";
@@ -135,42 +136,41 @@ namespace ModMenus
                 return false;
             }
 
+            // Mod Settings has one ordering anchor only: the vanilla Settings button.
+            // Do not derive its location from childCount and do not anchor it to
+            // Save & Quit/Main Menu, so later mods remain free to occupy that region.
+            Transform settingsButton = FindSettingsButton(settingsContainer);
+            if (settingsButton == null || settingsButton.parent == null)
+            {
+                return false;
+            }
+
+            settingsContainer = settingsButton.parent;
+
             Transform existingButton = FindNamedChild(settingsTab.Tab.transform, BUTTON_OBJ_NAME);
             if (existingButton != null)
             {
                 ConfigureModMenuButton(existingButton.gameObject);
+                PositionModMenuButton(existingButton, settingsButton);
                 return true;
             }
 
-            GameObject templateButton = FindButtonTemplate(settingsContainer);
-            if (templateButton == null)
-            {
-                templateButton = FindButtonTemplate(settingsTab.Tab.transform);
-                if (templateButton == null || templateButton.transform.parent == null)
-                {
-                    return false;
-                }
+            // Clone the exact vanilla Settings button that also serves as our anchor.
+            GameObject modMenuButton = CloneButton(
+                settingsButton.gameObject,
+                settingsContainer,
+                BUTTON_OBJ_NAME,
+                BUTTON_LABEL,
+                false,
+                false);
 
-                settingsContainer = templateButton.transform.parent;
-            }
-
-            GameObject modMenuButton = CloneButton(templateButton, settingsContainer, BUTTON_OBJ_NAME, BUTTON_LABEL, false, false);
             if (modMenuButton == null)
             {
                 return false;
             }
 
-            int maxIndex = Mathf.Max(0, settingsContainer.childCount - 1);
-            int targetIndex = Mathf.Clamp(settingsContainer.childCount - 2, 0, maxIndex);
-            modMenuButton.transform.SetSiblingIndex(targetIndex);
             ConfigureModMenuButton(modMenuButton);
-
-            RectTransform settingsRect = settingsContainer as RectTransform;
-            if (settingsRect != null)
-            {
-                LayoutRebuilder.ForceRebuildLayoutImmediate(settingsRect);
-            }
-
+            PositionModMenuButton(modMenuButton.transform, settingsButton);
             return true;
         }
 
@@ -258,19 +258,21 @@ namespace ModMenus
         }
 
         /// <summary>
-        /// Finds one existing settings button to clone.
+        /// Finds the vanilla Settings button by its stable GameObject name.
+        /// This intentionally does not use Save & Quit/Main Menu or any modded button
+        /// as a fallback ordering anchor.
         /// </summary>
-        private static GameObject FindButtonTemplate(Transform settingsContainer)
+        private static Transform FindSettingsButton(Transform settingsContainer)
         {
             if (settingsContainer == null)
             {
                 return null;
             }
 
-            Transform mainMenuButton = settingsContainer.Find("Main Menu");
-            if (mainMenuButton != null)
+            Transform direct = settingsContainer.Find(SETTINGS_BUTTON_OBJ_NAME);
+            if (direct != null && direct.GetComponent<Button>() != null)
             {
-                return mainMenuButton.gameObject;
+                return direct;
             }
 
             Button[] buttons = settingsContainer.GetComponentsInChildren<Button>(true);
@@ -282,13 +284,67 @@ namespace ModMenus
                     continue;
                 }
 
-                if (candidate.GetComponentInChildren<TextMeshProUGUI>(true) != null)
+                if (string.Equals(candidate.gameObject.name, SETTINGS_BUTTON_OBJ_NAME, StringComparison.Ordinal))
                 {
-                    return candidate.gameObject;
+                    return candidate.transform;
                 }
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Repairs Mod Settings so it is immediately after the vanilla Settings button.
+        /// Called both when creating the button and on every Settings-tab activation
+        /// when an existing ModMenuButton is found.
+        /// </summary>
+        private static void PositionModMenuButton(Transform modMenuButton, Transform settingsButton)
+        {
+            if (modMenuButton == null || settingsButton == null || settingsButton.parent == null)
+            {
+                return;
+            }
+
+            Transform parent = settingsButton.parent;
+            if (modMenuButton.parent != parent)
+            {
+                modMenuButton.SetParent(parent, false);
+            }
+
+            MoveImmediatelyAfter(modMenuButton, settingsButton);
+
+            RectTransform settingsRect = parent as RectTransform;
+            if (settingsRect != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(settingsRect);
+            }
+
+            Canvas.ForceUpdateCanvases();
+        }
+
+        private static void MoveImmediatelyAfter(Transform item, Transform anchor)
+        {
+            if (item == null || anchor == null || item == anchor || anchor.parent == null)
+            {
+                return;
+            }
+
+            Transform parent = anchor.parent;
+            if (item.parent != parent)
+            {
+                item.SetParent(parent, false);
+            }
+
+            int itemIndex = item.GetSiblingIndex();
+            int targetIndex = anchor.GetSiblingIndex() + 1;
+
+            // Removing an item that started before the anchor shifts the anchor left.
+            if (itemIndex < targetIndex)
+            {
+                targetIndex--;
+            }
+
+            item.SetSiblingIndex(Mathf.Clamp(targetIndex, 0, parent.childCount - 1));
         }
 
         /// <summary>
