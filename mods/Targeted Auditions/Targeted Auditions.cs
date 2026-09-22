@@ -88,8 +88,10 @@ namespace CustomAuditions
     [HarmonyPatch(typeof(Popup_Audition), "Set", new Type[] { typeof(Auditions.data), typeof(bool) })]
     public class Popup_Audition_Set
     {
-        public static void Prefix(Popup_Audition __instance)
+        public static void Prefix(Popup_Audition __instance, Auditions.data _data)
         {
+            AuditionPortraitHardening.BeginPopup(__instance, _data);
+
             if (__instance == null)
             {
                 return;
@@ -108,6 +110,7 @@ namespace CustomAuditions
             if (__instance != null)
             {
                 auditionLoadStartedAt.Remove(__instance.GetInstanceID());
+                AuditionPortraitHardening.EndPopup(__instance);
             }
 
             Debug.LogError(
@@ -137,6 +140,7 @@ namespace CustomAuditions
             }
 
             auditionLoadStartedAt.Remove(__instance.GetInstanceID());
+            AuditionPortraitHardening.EndPopup(__instance);
         }
     }
 
@@ -158,6 +162,7 @@ namespace CustomAuditions
             }
 
             auditionLoadStartedAt.Remove(__instance.GetInstanceID());
+            AuditionPortraitHardening.EndPopup(__instance);
         }
     }
 
@@ -174,98 +179,7 @@ namespace CustomAuditions
         /// <param name="__result">Original readiness result.</param>
         public static void Postfix(Popup_Audition __instance, ref bool __result)
         {
-            if (__result || __instance == null || __instance.Cards_Container == null)
-            {
-                return;
-            }
-
-            int popupId = __instance.GetInstanceID();
-            if (!auditionLoadStartedAt.TryGetValue(popupId, out float startedAt))
-            {
-                return;
-            }
-
-            float elapsed = Time.unscaledTime - startedAt;
-            if (elapsed < PORTRAIT_LOAD_TIMEOUT_SECONDS)
-            {
-                return;
-            }
-
-            // The vanilla coroutine waits indefinitely for all portraits. With large candidate counts this can
-            // deadlock the popup (blur shown, cards never become interactive). After timeout, continue anyway.
-            EnsurePopupIsVisible(__instance);
-            Sprite fallbackSprite = FindFallbackPortraitSprite(__instance);
-            bool missingPortraits = FillMissingPortraits(__instance, fallbackSprite);
-            if (missingPortraits)
-            {
-                Debug.Log("[Targeted Auditions] Portrait load timed out. Continuing with fallback portraits.");
-            }
-
-            __result = true;
-        }
-
-        private static void EnsurePopupIsVisible(Popup_Audition popup)
-        {
-            CanvasGroup cg = popup.GetComponent<CanvasGroup>();
-            if (cg != null)
-            {
-                cg.alpha = 1f;
-                cg.blocksRaycasts = true;
-                cg.interactable = true;
-            }
-
-            RectTransform rt = popup.GetComponent<RectTransform>();
-            if (rt != null)
-            {
-                rt.localScale = Vector3.one;
-            }
-        }
-
-        private static Sprite FindFallbackPortraitSprite(Popup_Audition popup)
-        {
-            foreach (Transform child in popup.Cards_Container.transform)
-            {
-                Audition_Closed_Card closedCard = child.GetComponent<Audition_Closed_Card>();
-                if (closedCard == null || closedCard.Portrait == null)
-                {
-                    continue;
-                }
-
-                Image image = closedCard.Portrait.GetComponent<Image>();
-                if (image != null && image.sprite != null)
-                {
-                    return image.sprite;
-                }
-            }
-
-            return null;
-        }
-
-        private static bool FillMissingPortraits(Popup_Audition popup, Sprite fallback)
-        {
-            bool hadMissing = false;
-            foreach (Transform child in popup.Cards_Container.transform)
-            {
-                Audition_Closed_Card closedCard = child.GetComponent<Audition_Closed_Card>();
-                if (closedCard == null || closedCard.Portrait == null)
-                {
-                    continue;
-                }
-
-                Image image = closedCard.Portrait.GetComponent<Image>();
-                if (image == null || image.sprite != null)
-                {
-                    continue;
-                }
-
-                hadMissing = true;
-                if (fallback != null)
-                {
-                    image.sprite = fallback;
-                }
-            }
-
-            return hadMissing;
+            AuditionPortraitHardening.UpdateReadiness(__instance, ref __result);
         }
     }
 
