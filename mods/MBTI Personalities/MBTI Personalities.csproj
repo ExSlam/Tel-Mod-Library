@@ -24,4 +24,6 @@
 
 	<Import Project="..\..\shared\StatLimits\StatLimits.projitems" Label="Shared" />
 
+	<Import Project="..\..\shared\SNLFWideNumericInterop\SNLFWideNumericInterop.projitems" Label="Shared" />
+
 </Project>

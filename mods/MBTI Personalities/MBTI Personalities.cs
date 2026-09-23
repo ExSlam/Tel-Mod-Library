@@ -6,6 +6,7 @@ using UnityEngine.UI;
 using TMPro;
 using System.Reflection;
 using static MBTIPersonalities.MBTIPersonalities;
+using SNLFWideNumericInterop;
 using System.Linq;
 
 namespace MBTIPersonalities
@@ -322,6 +323,17 @@ namespace MBTIPersonalities
             if (mBTI != MBTI.INFP)
                 return;
 
+            long wideResult;
+            if (SNLFWideNumeric.TryRoundSingleProduct(
+                __result,
+                "MBTI Personalities INFP handshake fan bonus",
+                out wideResult,
+                1f + INFPBonus))
+            {
+                __result = wideResult;
+                return;
+            }
+
             __result = (long)Mathf.Round(__result * (1 + INFPBonus));
         }
     }
@@ -630,6 +642,17 @@ namespace MBTIPersonalities
 
             if (GetGirlMBTI(__instance) != MBTI.ENFJ)
                 return;
+
+            long wideResult;
+            if (SNLFWideNumeric.TryRoundSingleProduct(
+                __result,
+                "MBTI Personalities ENFJ SSK fan bonus",
+                out wideResult,
+                1f + ENFJBonus))
+            {
+                __result = wideResult;
+                return;
+            }
 
             __result = (long)Mathf.Round(__result * (1 + ENFJBonus));
         }

@@ -1,4 +1,5 @@
 ﻿using HarmonyLib;
+using SNLFWideNumericInterop;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -559,12 +560,49 @@ namespace UnofficialPatch
                 // Add the missing 7th day for each theater.
                 if (theater.Stats.Count >= DaysInWeek)
                 {
-                    output += theater.Stats[theater.Stats.Count - DaysInWeek].Revenue;
+                    long seventhDayRevenue = theater.Stats[theater.Stats.Count - DaysInWeek].Revenue;
+                    long widenedOutput;
+                    if (SNLFWideNumeric.TryAdd(
+                        output,
+                        seventhDayRevenue,
+                        "Unofficial Patch theater weekly seventh-day revenue",
+                        out widenedOutput))
+                    {
+                        output = widenedOutput;
+                    }
+                    else
+                    {
+                        output += seventhDayRevenue;
+                    }
                 }
                 if (theater.AreSubsUnlocked())
                 {
                     // Include subscription revenue spread across an average month.
-                    output += (long)Mathf.Round(theater.GetSubRevenue() / SubRevenueWeeksPerMonth);
+                    long subRevenue = theater.GetSubRevenue();
+                    if (SNLFWideNumeric.IsEnabled)
+                    {
+                        // SNLF keeps subscription revenue authoritative as Int64; do not narrow it back through Single.
+                        long weeklySubRevenue = (long)Math.Round(
+                            subRevenue / (double)SubRevenueWeeksPerMonth,
+                            MidpointRounding.ToEven);
+                        long widenedOutput;
+                        if (SNLFWideNumeric.TryAdd(
+                            output,
+                            weeklySubRevenue,
+                            "Unofficial Patch theater weekly subscription revenue",
+                            out widenedOutput))
+                        {
+                            output = widenedOutput;
+                        }
+                        else
+                        {
+                            output += weeklySubRevenue;
+                        }
+                    }
+                    else
+                    {
+                        output += (long)Mathf.Round(subRevenue / SubRevenueWeeksPerMonth);
+                    }
                 }
             }
             // Return the corrected tooltip total.

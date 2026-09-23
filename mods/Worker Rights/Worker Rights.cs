@@ -2,6 +2,7 @@
 using System;
 using UnityEngine;
 using static WorkerRights.WorkerRights;
+using SNLFWideNumericInterop;
 
 namespace WorkerRights
 {
@@ -71,6 +72,25 @@ namespace WorkerRights
         {
             if (__instance == null || !staticVars.IsHard() || __instance.GetFameLevel() != 10)
                 return;
+
+            long exactEarning;
+            if (SNLFWideNumeric.TryGetAverageEarnings(__instance, out exactEarning))
+            {
+                if (exactEarning <= 0L)
+                    return;
+
+                long exactFloor;
+                if (SNLFWideNumeric.TryRoundSingleProduct(
+                    exactEarning,
+                    "Worker Rights fame-10 salary floor",
+                    out exactFloor,
+                    MAXFAME_SALARY_EARN_COEFF))
+                {
+                    if (exactFloor > __result)
+                        __result = exactFloor;
+                    return;
+                }
+            }
 
             float earning = __instance.GetAverageEarnings();
             if (float.IsNaN(earning) || float.IsInfinity(earning) || earning <= 0f)

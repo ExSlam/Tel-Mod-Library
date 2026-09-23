@@ -6,6 +6,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Reflection.Emit;
 using static StaleTheater.StaleTheater;
+using SNLFWideNumericInterop;
 
 namespace StaleTheater
 {
@@ -77,14 +78,33 @@ namespace StaleTheater
     {
         public static void Postfix(ref long __result)
         {
+            float coefficient;
             if (staticVars.IsHard())
             {
-                __result = Mathf.RoundToInt(__result * (1 - STREAM_PENALTY_HARD));
+                coefficient = 1f - STREAM_PENALTY_HARD;
             }
-            else if(staticVars.IsNormal())
+            else if (staticVars.IsNormal())
             {
-                __result = Mathf.RoundToInt(__result * (1 - STREAM_PENALTY_NORMAL));
+                coefficient = 1f - STREAM_PENALTY_NORMAL;
             }
+            else
+            {
+                return;
+            }
+
+            long wideResult;
+            if (SNLFWideNumeric.TryRoundSingleProduct(
+                __result,
+                "Stale Theater Shows subscription penalty",
+                out wideResult,
+                coefficient))
+            {
+                __result = wideResult;
+                return;
+            }
+
+            // Preserve the original Tel-only behavior when SNLF is absent.
+            __result = Mathf.RoundToInt(__result * coefficient);
         }
     }
 

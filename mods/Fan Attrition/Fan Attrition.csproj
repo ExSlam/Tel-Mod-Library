@@ -22,4 +22,6 @@
 		<PackageReference Include="UnityEngine.Modules" Version="2019.4.23" IncludeAssets="compile" />
 	</ItemGroup>
 
+	<Import Project="..\..\shared\SNLFWideNumericInterop\SNLFWideNumericInterop.projitems" Label="Shared" />
+
 </Project>

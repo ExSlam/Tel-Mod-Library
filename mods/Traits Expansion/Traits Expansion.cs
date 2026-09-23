@@ -4,6 +4,7 @@ using UnityEngine;
 using System.Linq;
 using System;
 using static TraitsExpansion.TraitsExpansion;
+using SNLFWideNumericInterop;
 using System.Reflection.Emit;
 using System.Reflection;
 using SimpleJSON;
@@ -287,6 +288,17 @@ namespace TraitsExpansion
 
             if (__instance.trait != (traits._trait._type)NewTraits.Cult_Leader)
                 return;
+
+            long wideResult;
+            if (SNLFWideNumeric.TryRoundSingleProduct(
+                __result,
+                "Traits Expansion Cult Leader SSK fan bonus",
+                out wideResult,
+                CULT_COEFF))
+            {
+                __result = wideResult;
+                return;
+            }
 
             __result = (long)Mathf.Round(__result * CULT_COEFF);
         }

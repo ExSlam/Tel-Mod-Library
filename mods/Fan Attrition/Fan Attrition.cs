@@ -4,6 +4,7 @@ using UnityEngine;
 using System.Reflection;
 using System.Linq;
 using static FanAttrition.Utility;
+using SNLFWideNumericInterop;
 using System.Collections.Generic;
 using System.Reflection.Emit;
 
@@ -340,16 +341,36 @@ namespace FanAttrition
             resources.Add(resources.type.fans, resources.FansChange);
             fansTotal = resources.GetFansTotal();
 
-            float churn = staticVars.PlayerData.Difficulty switch
+            if (SNLFWideNumeric.IsEnabled)
+            {
+                double churn = staticVars.PlayerData.Difficulty switch
+                {
+                    staticVars._playerData._difficulty.hard => Math.Pow((double)fansTotal, CHURN_POWER_HARD) * CHURN_COEFF_HARD + CHURN_OFFSET_HARD,
+                    staticVars._playerData._difficulty.normal => Math.Pow((double)fansTotal, CHURN_POWER_NORMAL) * CHURN_COEFF_NORMAL + CHURN_OFFSET_NORMAL,
+                    _ => 0d
+                };
+
+                if (churn > 0d)
+                {
+                    resources.FansChange = -(long)Math.Ceiling(churn);
+                }
+                else
+                {
+                    resources.FansChange = 0L;
+                }
+                return;
+            }
+
+            float vanillaChurn = staticVars.PlayerData.Difficulty switch
             {
                 staticVars._playerData._difficulty.hard => Mathf.Pow(fansTotal, CHURN_POWER_HARD) * CHURN_COEFF_HARD + CHURN_OFFSET_HARD,
                 staticVars._playerData._difficulty.normal => Mathf.Pow(fansTotal, CHURN_POWER_NORMAL) * CHURN_COEFF_NORMAL + CHURN_OFFSET_NORMAL,
                 _ => 0f
             };
 
-            if (churn > 0f)
+            if (vanillaChurn > 0f)
             {
-                resources.FansChange = -(long)Mathf.Ceil(churn);
+                resources.FansChange = -(long)Mathf.Ceil(vanillaChurn);
             }
             else
             {

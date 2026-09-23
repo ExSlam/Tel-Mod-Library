@@ -2,6 +2,7 @@
 using System;
 using UnityEngine;
 using static ConcertRebalance.ConcertRebalance;
+using SNLFWideNumericInterop;
 
 namespace ConcertRebalance
 {
@@ -75,8 +76,30 @@ namespace ConcertRebalance
             {
                 num4 = 1.05f;
             }
-            __instance.ProjectedValues.Actual_Revenue = (long)Mathf.Round(__instance.ProjectedValues.Actual_Audience * __instance.ProjectedValues.TicketPrice * num * num4);
+            long ticketRevenue;
+            long wideRevenue;
+            if (SNLFWideNumeric.TryMultiply(
+                    __instance.ProjectedValues.Actual_Audience,
+                    __instance.ProjectedValues.TicketPrice,
+                    "Concert Rebalance club ticket revenue",
+                    out ticketRevenue) &&
+                SNLFWideNumeric.TryRoundSingleProduct(
+                    ticketRevenue,
+                    "Concert Rebalance club hype revenue",
+                    out wideRevenue,
+                    num,
+                    num4))
+            {
+                __instance.ProjectedValues.Actual_Revenue = wideRevenue;
+                return;
+            }
 
+            // Preserve the original Tel-only calculation when SNLF is absent.
+            __instance.ProjectedValues.Actual_Revenue = (long)Mathf.Round(
+                __instance.ProjectedValues.Actual_Audience *
+                __instance.ProjectedValues.TicketPrice *
+                num *
+                num4);
 
             return;
         }
