@@ -257,3 +257,56 @@ This changelog covers changes made after the `main` branch point at commit `1c6d
   - Removed Save & Quit/Main Menu and `childCount`-relative placement from Mod Settings ordering, leaving later positions available for other mods to insert their own settings buttons independently.
 - **`mods/ModMenus/ModMenus.csproj`**
   - Version increased from **1.0.1** to **1.0.2**.
+
+## 2026-09-22
+
+### Concert Rebalance
+
+- **`mods/Concert Rebalance/Concert Rebalance.cs`**
+  - Added optional Save n Load Fixes (SNLF) compatibility for club concert revenue. Audience and ticket price are multiplied through SNLF's checked `Int64` helper before applying hype and the 5% ticket bonus through its compatible rounding helper, avoiding the previous narrow intermediate calculations for large revenues.
+
+### Fan Attrition
+
+- **`mods/Fan Attrition/Fan Attrition.cs`**
+  - When SNLF is active, weekly fan churn uses `double` arithmetic and `Math.Ceiling` before storing the result as `long`, preserving more precision for large fan totals. Existing difficulty coefficients and the original calculation without SNLF are retained.
+
+### MBTI Personalities
+
+- **`mods/MBTI Personalities/MBTI Personalities.cs`**
+  - Added SNLF-compatible scaling for the **INFP** handshake fan bonus and **ENFJ** SSK fan bonus, keeping large fan counts in the wide-numeric calculation path instead of converting them through `Mathf.Round`.
+
+### Stale Theater Shows
+
+- **`mods/Stale Theater Shows/Stale Theater Shows.cs`**
+  - Added SNLF-compatible scaling for Normal/Hard theater subscription penalties so large subscription revenues are no longer narrowed through `Mathf.RoundToInt` when SNLF's helper is available. The existing penalty coefficients and behavior without SNLF are preserved.
+
+### Targeted Auditions
+
+- **`mods/Targeted Auditions/Audition Portrait Hardening.cs`**
+  - Added a portrait-loading helper designed to limit normal auditions to **five simultaneous portrait loads**, retry a portrait once after a six-second timeout, and replace an unrenderable candidate with a newly generated vanilla idol, with up to three replacements. Custom/story auditions are excluded from this helper.
+- **`mods/Targeted Auditions/Targeted Auditions.cs`**
+  - The final commit for this date restores the existing six-second portrait watchdog and fallback behavior. The new helper's popup initialization, cleanup, and readiness calls are absent, so its queued loading and candidate-replacement behavior is not active in the current code. The project version remains **2.0.3**.
+
+### Traits Expansion
+
+- **`mods/Traits Expansion/Traits Expansion.cs`**
+  - Added SNLF-compatible scaling for the **Cult Leader** SSK fan bonus so large fan counts use the wide-numeric rounding helper.
+
+### Unofficial Patch
+
+- **`mods/Unofficial Patch/Unofficial Patch.cs`**
+  - Added SNLF checked addition for the seventh day of theater revenue and weekly subscription revenue in the corrected weekly tooltip total.
+  - When SNLF is active, subscription revenue is converted to its weekly share using `double` arithmetic and midpoint-to-even rounding instead of narrowing the `Int64` revenue through `float`.
+
+### Worker Rights
+
+- **`mods/Worker Rights/Worker Rights.cs`**
+  - Added an SNLF path for the Hard-mode Fame 10 salary floor that reads exact `Int64` average earnings and applies the existing 10% coefficient through SNLF's rounding helper. Non-positive earnings are ignored, and a higher existing salary expectation is preserved.
+
+### Shared SNLFWideNumericInterop library
+
+- **`shared/SNLFWideNumericInterop/SNLFWideNumericInterop.cs`**
+  - Added a reflection-only bridge to Save n Load Fixes, enabled when its `com.cosmo.savenloadfixes` Harmony patches are present. The bridge resolves checked addition/multiplication, compatible product rounding, and exact average-earnings helpers without a direct assembly dependency.
+  - Existing calculations remain available when SNLF is absent. Unavailable helper methods produce a once-per-mod warning and return control to the caller's fallback calculation; exceptions from resolved helpers propagate with their original inner exception.
+- **`shared/SNLFWideNumericInterop/SNLFWideNumericInterop.projitems`**
+  - Added the shared-source import and wired it into Concert Rebalance, Fan Attrition, MBTI Personalities, Stale Theater Shows, Traits Expansion, Unofficial Patch, and Worker Rights.
